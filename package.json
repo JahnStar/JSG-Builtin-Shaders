@@ -1,0 +1,20 @@
+{
+  "name": "com.jahnstargames.shaders",
+  "displayName": "JSG Shaders",
+  "author": {
+    "name": "Jahn Star Games",
+    "email": "contact@jahnstar.com",
+    "url": "https://jahnstar.com"
+  },
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "description": "</> by Halil Emre Yildiz\n\n",
+  "unityRelease": "20f1",
+  "changelog": [
+  ],
+  "keywords": [
+    "unity"
+  ],
+  "dependencies": {
+  }
+}
