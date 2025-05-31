@@ -7,7 +7,7 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
         _SunSize ("Sun Size", Range(0,1)) = 0.04
         _SunSizeConvergence("Sun Size Convergence", Range(1,10)) = 5
     
-        _AtmosphereThickness ("Atmosphere Thickness", Range(0,5)) = 1.0
+        _AtmosphereThickness ("Atmosphere Thickness", Range(0.001,5)) = 1.0
         _SkyTint ("Sky Tint", Color) = (.5, .5, .5, 1)
         _GroundColor ("Ground", Color) = (.369, .349, .341, 1)
     
