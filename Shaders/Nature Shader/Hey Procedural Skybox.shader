@@ -1,7 +1,7 @@
-// by Halil Emre Yildiz
+// by Halil Emre Yildiz - Updated with Smooth Horizon Transition
 // Original Version: https://github.com/TwoTailsGames/Unity-Built-in-Shaders/blob/master/DefaultResourcesExtra/Skybox-Procedural.shader
 
-Shader "JS Games/Nature/Hey Procedural Skybox" {
+Shader "JS Games/Nature/Hey Procedural Skybox Smooth" {
     Properties {
         [KeywordEnum(None, Simple)] _SunDisk ("Sun", Int) = 1
         _SunSize ("Sun Size", Range(0,1)) = 0.04
@@ -9,7 +9,8 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
     
         _AtmosphereThickness ("Atmosphere Thickness", Range(0,5)) = 1.0
         _SkyTint ("Sky Tint", Color) = (.5, .5, .5, 1)
-        _GroundColor ("Ground", Color) = (.369, .349, .341, 1)
+        _GroundColor ("Ground (Day)", Color) = (.369, .349, .341, 1)
+        _GroundColorNight ("Ground (Night)", Color) = (.1, .1, .12, 1)
     
         _Exposure("Exposure", Range(0, 8)) = 1.3
         _MoonColor ("Moon Color", Color) = (.8, .8, .9, 1)
@@ -26,6 +27,10 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
         _HorizonColor ("Horizon Color", Color) = (1, 1, 1, 1)
         _HorizonSkybox ("Horizon Skybox", Cube) = "" {}
         _HorizonIntensity ("Horizon Intensity", Range(0, 1)) = 1
+        
+        // NEW: Horizon smoothing parameters
+        _HorizonOffset ("Horizon Offset", Range(-0.2, 0.2)) = 0.0
+        _ElementsFadeRange ("Elements Fade Range", Range(0.01, 0.3)) = 0.05
     }
     
     SubShader {
@@ -45,6 +50,7 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
     
             uniform half _Exposure;     // HDR exposure
             uniform half3 _GroundColor;
+            uniform half3 _GroundColorNight;
             uniform half _SunSize;
             uniform half _SunSizeConvergence;
             uniform half3 _SkyTint;
@@ -57,6 +63,11 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
             uniform half _NightIntensity;
             uniform half _HorizonIntensity;
             uniform half3 _HorizonColor;
+            
+            // NEW parameters
+            uniform half _HorizonOffset;
+            uniform half _ElementsFadeRange;
+            
             samplerCUBE _HorizonSkybox;
             samplerCUBE _CloudsSkybox;
             samplerCUBE _NightSkybox;
@@ -102,26 +113,23 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
     
             #define MIE_G (-0.990)
             #define MIE_G2 0.9801
-    
-            #define SKY_GROUND_THRESHOLD 0.02
-    
-            #define SKYBOX_SUNDISK_SIMPLE 1
-    
-        #ifndef SKYBOX_SUNDISK
+
+            #define SKYBOX_SUNDISK_SIMPLE 1        
+            #ifndef SKYBOX_SUNDISK
             #if defined(_SUNDISK_NONE)
                 #define SKYBOX_SUNDISK 0
             #else
                 #define SKYBOX_SUNDISK SKYBOX_SUNDISK_SIMPLE
             #endif
-        #endif
-    
-        #ifndef SKYBOX_COLOR_IN_TARGET_COLOR_SPACE
-            #if defined(SHADER_API_MOBILE)
-                #define SKYBOX_COLOR_IN_TARGET_COLOR_SPACE 1
-            #else
-                #define SKYBOX_COLOR_IN_TARGET_COLOR_SPACE 0
-            #endif
-        #endif
+                    #endif
+                
+                    #ifndef SKYBOX_COLOR_IN_TARGET_COLOR_SPACE
+                        #if defined(SHADER_API_MOBILE)
+                            #define SKYBOX_COLOR_IN_TARGET_COLOR_SPACE 1
+                        #else
+                            #define SKYBOX_COLOR_IN_TARGET_COLOR_SPACE 0
+                        #endif
+                    #endif
     
             half getRayleighPhase(half eyeCos2)
             {
@@ -247,7 +255,13 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
                 }
     
                 OUT.rayDir = half3(-eyeRay);
-                OUT.groundColor = _Exposure * (cIn + COLOR_2_LINEAR(_GroundColor) * cOut);
+                
+                // NEW: Day/night ground color blending
+                half sunHeight = _WorldSpaceLightPos0.y;
+                half dayNightBlend = saturate((sunHeight + 0.1) / 0.2); // Transition between -0.1 and 0.1
+                half3 finalGroundColor = lerp(_GroundColorNight, _GroundColor, dayNightBlend);
+                
+                OUT.groundColor = _Exposure * (cIn + COLOR_2_LINEAR(finalGroundColor) * cOut);
                 OUT.skyColor = _Exposure * (cIn * getRayleighPhase(_WorldSpaceLightPos0.xyz, -eyeRay));
                 half lightColorIntensity = clamp(length(_LightColor0.xyz), 0.25, 1);
                 OUT.sunColor = kSimpleSundiskIntensityFactor * saturate(cOut * kSunScale) * _LightColor0.xyz / lightColorIntensity;
@@ -276,63 +290,76 @@ Shader "JS Games/Nature/Hey Procedural Skybox" {
                 half spot = 1.0 - smoothstep(_MoonSize * 0.8, _MoonSize, dist);
                 return spot * spot;
             }
+            
+            // NEW: Smooth fade calculation function
+            half calcElementsFade(half y, half fadeRange)
+            {
+                return smoothstep(-fadeRange, fadeRange, y);
+            }
     
             half4 frag (v2f IN) : SV_Target
             {
                 half3 col = half3(0.0, 0.0, 0.0);
                 half3 ray = IN.rayDir.xyz;
 
-                half y = ray.y / SKY_GROUND_THRESHOLD;
-                col = lerp(IN.skyColor, IN.groundColor, saturate(y));
+                // NEW: Fixed smooth horizon transition
+                half y = ray.y + _HorizonOffset;
+                half horizonBlend = smoothstep(-0.05, 0.05, y); // Fixed 0.1 fade range
+                col = lerp(IN.groundColor, IN.skyColor, horizonBlend);
+                
+                // NEW: Smooth fade for elements
+                half elementsFade = calcElementsFade(y, _ElementsFadeRange);
+                half belowHorizonMask = 1.0 - elementsFade;
 
-                if (y < 0.0) 
+                // Night Skybox - with smooth fade
+                if (_NightIntensity > 0)
                 {
-                    // Night Skybox
-                    if (_NightIntensity > 0)
-                    {
-                        float cosNightAngle = cos(_NightRot);
-                        float sinNightAngle = sin(_NightRot);
-                        float3x3 nightRotationMatrix = float3x3(
-                            1, 0, 0,
-                            0, cosNightAngle, -sinNightAngle,
-                            0, sinNightAngle, cosNightAngle
-                        );
+                    float cosNightAngle = cos(_NightRot);
+                    float sinNightAngle = sin(_NightRot);
+                    float3x3 nightRotationMatrix = float3x3(
+                        1, 0, 0,
+                        0, cosNightAngle, -sinNightAngle,
+                        0, sinNightAngle, cosNightAngle
+                    );
 
-                        float3 rotatedNightPos = mul(nightRotationMatrix, IN.worldPos);
-                        half4 nightSkyboxColor = texCUBE(_NightSkybox, rotatedNightPos);
-                        col = lerp(col, nightSkyboxColor.rgb, nightSkyboxColor.a * _NightIntensity);
-                    }
+                    float3 rotatedNightPos = mul(nightRotationMatrix, IN.worldPos);
+                    half4 nightSkyboxColor = texCUBE(_NightSkybox, rotatedNightPos);
+                    half nightBlend = nightSkyboxColor.a * _NightIntensity * belowHorizonMask;
+                    col = lerp(col, nightSkyboxColor.rgb, nightBlend);
+                }
 
-                    // Sun
-                    col += IN.sunColor * calcSunAttenuation(_WorldSpaceLightPos0.xyz, -ray);
+                // Sun - with smooth fade
+                half sunAttenuation = calcSunAttenuation(_WorldSpaceLightPos0.xyz, -ray);
+                col += IN.sunColor * sunAttenuation * belowHorizonMask;
 
-                    // Moon
-                    half3 moonPos = -_WorldSpaceLightPos0.xyz; 
-                    half moonAttenuation = calcMoonAttenuation(moonPos, -ray);
-                    col = lerp(col, _MoonColor.rgb, moonAttenuation);
+                // Moon - with smooth fade
+                half3 moonPos = -_WorldSpaceLightPos0.xyz; 
+                half moonAttenuation = calcMoonAttenuation(moonPos, -ray);
+                col = lerp(col, _MoonColor.rgb, moonAttenuation * belowHorizonMask);
 
-                    // Horizon Skybox
-                    if (_HorizonIntensity > 0)
-                    {
-                        half4 horizonSkyboxColor = texCUBE(_HorizonSkybox, IN.worldPos);
-                        col = lerp(col, horizonSkyboxColor.rgb * _HorizonColor, horizonSkyboxColor.a * _HorizonIntensity);
-                    }
-                    
-                    // Clouds Skybox
-                    if (_CloudsIntensity > 0)
-                    {
-                        float cosCloudsAngle = cos(_CloudsRot);
-                        float sinCloudsAngle = sin(_CloudsRot);
-                        float3x3 cloudsRotationMatrix = float3x3(
-                            cosCloudsAngle, 0, sinCloudsAngle,
-                            0, 1, 0,
-                            -sinCloudsAngle, 0, cosCloudsAngle
-                        );
+                // Horizon Skybox - with smooth fade
+                if (_HorizonIntensity > 0)
+                {
+                    half4 horizonSkyboxColor = texCUBE(_HorizonSkybox, IN.worldPos);
+                    half horizonBlend = horizonSkyboxColor.a * _HorizonIntensity * belowHorizonMask;
+                    col = lerp(col, horizonSkyboxColor.rgb * _HorizonColor, horizonBlend);
+                }
+                
+                // Clouds Skybox - with smooth fade
+                if (_CloudsIntensity > 0)
+                {
+                    float cosCloudsAngle = cos(_CloudsRot);
+                    float sinCloudsAngle = sin(_CloudsRot);
+                    float3x3 cloudsRotationMatrix = float3x3(
+                        cosCloudsAngle, 0, sinCloudsAngle,
+                        0, 1, 0,
+                        -sinCloudsAngle, 0, cosCloudsAngle
+                    );
 
-                        float3 rotatedCloudsPos = mul(cloudsRotationMatrix, IN.worldPos);
-                        half4 cloudsSkyboxColor = texCUBE(_CloudsSkybox, rotatedCloudsPos);
-                        col = lerp(col, cloudsSkyboxColor.rgb, cloudsSkyboxColor.a * _CloudsIntensity); 
-                    }
+                    float3 rotatedCloudsPos = mul(cloudsRotationMatrix, IN.worldPos);
+                    half4 cloudsSkyboxColor = texCUBE(_CloudsSkybox, rotatedCloudsPos);
+                    half cloudsBlend = cloudsSkyboxColor.a * _CloudsIntensity * belowHorizonMask;
+                    col = lerp(col, cloudsSkyboxColor.rgb, cloudsBlend); 
                 }
 
             #if defined(UNITY_COLORSPACE_GAMMA) && !SKYBOX_COLOR_IN_TARGET_COLOR_SPACE

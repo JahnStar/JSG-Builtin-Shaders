@@ -18,10 +18,14 @@
         Tags {"Queue" = "AlphaTest" "IgnoreProjector" = "True" "RenderType" = "TransparentCutout"}
         LOD 200
         Cull[_CullMode]
+        
         CGPROGRAM
         #pragma target 3.0
         #pragma surface surf Lambert alphatest:_Cutoff vertex:vert addshadow
-
+        #pragma multi_compile_instancing
+        
+        #include "UnityCG.cginc"
+        
         sampler2D _MainTex;
         half4 _Color;
         half _ShakeDisplacement;
@@ -45,9 +49,14 @@
 
         void vert(inout appdata_full v) 
         {
+            UNITY_SETUP_INSTANCE_ID(v);
+            
             half factor = (1 - _ShakeDisplacement - v.color.r) * 0.5;
 
-            const half _WindSpeed = (_ShakeWindspeed + v.color.g);
+            // Add some variation per instance using vertex position as seed
+            half instanceVariation = frac(sin(dot(v.vertex.xyz, half3(12.9898, 78.233, 45.164))) * 43758.5453);
+            
+            const half _WindSpeed = (_ShakeWindspeed + v.color.g) * (0.8 + instanceVariation * 0.4);
             const half _WaveScale = _ShakeDisplacement;
 
             const half4 _waveXSize = half4(0.048, 0.06, 0.24, 0.096);
@@ -58,7 +67,10 @@
             const half4 _waveZmove = half4 (0.006, .02, -0.02, 0.1);
 
             half4 waves = v.vertex.x * _waveXSize + v.vertex.z * _waveZSize;
-            waves += _Time.x * (1 - _ShakeTime * 2 - v.color.b) * waveSpeed * _WindSpeed;
+            
+            // Add instance-based time offset for variation using world position
+            half timeOffset = frac(dot(mul(unity_ObjectToWorld, v.vertex).xyz, 1.0)) * 6.28318; // 2*PI
+            waves += (_Time.x + timeOffset) * (1 - _ShakeTime * 2 - v.color.b) * waveSpeed * _WindSpeed;
 
             half4 s, c;
             waves = frac(waves);
